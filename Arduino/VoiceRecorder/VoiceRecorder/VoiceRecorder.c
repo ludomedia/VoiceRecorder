@@ -1,0 +1,128 @@
+/*
+ * VoiceRecorder.c
+ *
+ * Created: 27.10.2013 14:36:47
+ *  Author: marcha
+ */ 
+
+// -pattiny85 -C"C:\$(Device)Program Files (x86)\Arduino\hardware\tools\avr\etc/avrdude.conf" -v -v -carduino -P\\.\COM4 -b19200 -Uflash:w:"$(ProjectDir)Debug\$(ItemFileName).hex":i
+// -patmega328p -P\\.\COM8 -C"C:\$(Device)Program Files (x86)\Arduino\hardware\tools\avr\etc/avrdude.conf" -v -v -carduino -b115200 -Uflash:w:"$(ProjectDir)Debug\$(ItemFileName).hex":i
+
+#define F_CPU 16000000
+/*
+#include <avr/io.h>
+#include <util/delay.h>
+
+int main(void)
+{
+	DDRB = 1<<PB5;
+	
+    while(1)
+    {
+		_delay_ms(250);
+		PORTB ^= (1<<PB5);
+        //TODO:: Please write your application code 
+    }
+}
+*/
+
+/*----------------------------------------------------------------------*/
+/* Petit FatFs sample project for generic uC  (C)ChaN, 2010             */
+/*----------------------------------------------------------------------*/
+
+#include <stdio.h>
+#include "pff.h"
+
+
+void die (		/* Stop with dying message */
+FRESULT rc	/* FatFs return value */
+)
+{
+	printf("Failed with rc=%u.\n", rc);
+	for (;;) ;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/* Program Main                                                          */
+/*-----------------------------------------------------------------------*/
+
+int main (void)
+{
+	FATFS fatfs;			/* File system object */
+	DIR dir;				/* Directory object */
+	FILINFO fno;			/* File information object */
+	WORD bw, br, i;
+	BYTE buff[64];
+	FRESULT rc;
+
+	printf("\nMount a volume.\n");
+	rc = pf_mount(&fatfs);
+	if (rc) die(rc);
+
+	printf("\nOpen a test file (message.txt).\n");
+	rc = pf_open("MESSAGE.TXT");
+	if (rc) die(rc);
+
+	printf("\nType the file content.\n");
+	for (;;) {
+		rc = pf_read(buff, sizeof(buff), &br);	/* Read a chunk of file */
+		if (rc || !br) break;			/* Error or end of file */
+		for (i = 0; i < br; i++)		/* Type the data */
+		putchar(buff[i]);
+	}
+	if (rc) die(rc);
+
+	#if _USE_WRITE
+	printf("\nOpen a file to write (write.txt).\n");
+	rc = pf_open("WRITE.TXT");
+	if (rc) die(rc);
+
+	printf("\nWrite a text data. (Hello world!)\n");
+	for (;;) {
+		rc = pf_write("Hello world!\r\n", 14, &bw);
+		if (rc || !bw) break;
+	}
+	if (rc) die(rc);
+
+	printf("\nTerminate the file write process.\n");
+	rc = pf_write(0, 0, &bw);
+	if (rc) die(rc);
+	#endif
+
+	#if _USE_DIR
+	printf("\nOpen root directory.\n");
+	rc = pf_opendir(&dir, "");
+	if (rc) die(rc);
+
+	printf("\nDirectory listing...\n");
+	for (;;) {
+		rc = pf_readdir(&dir, &fno);	/* Read a directory item */
+		if (rc || !fno.fname[0]) break;	/* Error or end of dir */
+		if (fno.fattrib & AM_DIR)
+		printf("   <dir>  %s\n", fno.fname);
+		else
+		printf("%8lu  %s\n", fno.fsize, fno.fname);
+	}
+	if (rc) die(rc);
+	#endif
+
+	printf("\nTest completed.\n");
+	for (;;) ;
+}
+
+
+
+/*---------------------------------------------------------*/
+/* User Provided Timer Function for FatFs module           */
+/*---------------------------------------------------------*/
+
+DWORD get_fattime (void)
+{
+	return	  ((DWORD)(2010 - 1980) << 25)	/* Fixed to Jan. 1, 2010 */
+	| ((DWORD)1 << 21)
+	| ((DWORD)1 << 16)
+	| ((DWORD)0 << 11)
+	| ((DWORD)0 << 5)
+	| ((DWORD)0 >> 1);
+}

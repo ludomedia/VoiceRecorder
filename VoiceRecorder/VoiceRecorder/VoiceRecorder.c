@@ -15,8 +15,9 @@
 
 #include "uart.h"
 #include "pff.h"
+#include "analog.h"
 
-#define LED_PIN PB5
+// #define LED_PIN PB5
 
 FILE uart_output = FDEV_SETUP_STREAM(uart_putchar, NULL, _FDEV_SETUP_WRITE);
 FILE uart_input = FDEV_SETUP_STREAM(NULL, uart_getchar, _FDEV_SETUP_READ);
@@ -34,6 +35,9 @@ void die (FRESULT rc) {
 int main(void)
 {
 	uart_init();
+	adc_init();
+	sei();
+	
 	stdout = &uart_output;
 	stdin = &uart_input;
 	
@@ -72,10 +76,11 @@ int main(void)
 	if (result) die(result);
 
 	printf("\nWrite a text data. (Hello world!)\n");
-	//for (;;) {
+	for (;;) {
+		//result = pf_write("Bonjour, ceci est un test\r\n", 27, &bw);
 		result = pf_write("Bonjour, ceci est un test\r\n", 27, &bw);
-		//if (result || !bw) break;
-	//}
+		if (result || !bw) break;
+	}
 	if (result) die(result);
 
 	printf("\nTerminate the file write process.\n");
@@ -104,3 +109,4 @@ int main(void)
 	return 0;
 		
 }
+

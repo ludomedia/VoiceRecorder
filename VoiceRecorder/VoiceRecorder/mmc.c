@@ -187,12 +187,11 @@ DRESULT disk_readp (
 	BYTE rc;
 	WORD bc;
 
-
+	
 	if (!(CardType & CT_BLOCK)) lba *= 512;		/* Convert to byte address if needed */
 
 	res = RES_ERROR;
 	if (send_cmd(CMD17, lba) == 0) {		/* READ_SINGLE_BLOCK */
-
 		bc = 40000;
 		do {							/* Wait for data packet */
 			rc = rcv_spi();
@@ -209,8 +208,9 @@ DRESULT disk_readp (
 			/* Receive a part of the sector */
 			if (buff) {	/* Store data to the memory */
 				do {
-					*buff++ = rcv_spi();
+					*buff++ = rcv_spi();									
 				} while (--cnt);
+				
 			} else {	/* Forward data to the outgoing stream (depends on the project) */
 				do {
 					FORWARD(rcv_spi());

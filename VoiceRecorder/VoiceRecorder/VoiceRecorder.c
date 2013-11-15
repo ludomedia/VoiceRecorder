@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <util/delay.h>
 
+#include "diskio.h"
 #include "uart.h"
 #include "pff.h"
 #include "analog.h"
@@ -35,8 +36,8 @@ void die (FRESULT rc) {
 int main(void)
 {
 	uart_init();
-	adc_init();
-	sei();
+	//adc_init();
+	//sei();
 	
 	stdout = &uart_output;
 	stdin = &uart_input;
@@ -53,9 +54,24 @@ int main(void)
 
 	puts("Start");
 
+
+
+
 	/* Mount volume */
 	FRESULT result = pf_mount(&Fs);
 	if(result) die(result);
+
+	puts("Read");
+	for(int o=0x1BE;o<0x1FF;o+=16) {
+		result = disk_readp(buff, 0, o, 16);
+		if(result) die(result);
+		
+		for(int i=0;i<16;i++) {
+			printf("%2x ", buff[i]);
+		}
+		puts("");
+	}
+	for(;;);
 
 	/*
 	printf("\nOpen a test file (ACCESS.LOG).\n");

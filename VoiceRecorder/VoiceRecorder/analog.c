@@ -13,7 +13,6 @@ void adc_init() {
   ADCSRA |= (1 << ADATE); // Enable auto-triggering
   ADCSRA |= (1 << ADIE);  // Enable ADC Interrupt
   //  sei();                 // Enable Global Interrupts
-
 }  
 
 #define BUFFER_SIZE 128

@@ -6,6 +6,7 @@
  */ 
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 void adc_init() {
   ADMUX |= (1 << REFS0) | (1 << ADLAR); // Set ADC reference to AVCC
@@ -60,11 +61,6 @@ uint8_t adc_getAnalogData() {
 	sei();
 	return v;
 }
-/*
-
-
-
-
 
 /*
   SD card datalogger

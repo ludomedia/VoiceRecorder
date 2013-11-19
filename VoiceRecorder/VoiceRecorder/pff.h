@@ -141,9 +141,9 @@ FRESULT pf_write (const void*, WORD, WORD*);	/* Write data to the open file */
 FRESULT pf_lseek (DWORD);						/* Move file pointer of the open file */
 FRESULT pf_opendir (DIR*, const char*);			/* Open a directory */
 FRESULT pf_readdir (DIR*, FILINFO*);			/* Read a directory item from the open directory */
-
-
-
+DWORD clust2sect (	/* !=0: Sector number, 0: Failed - invalid cluster# */
+CLUST clst		/* Cluster# to be converted */
+);
 /*--------------------------------------------------------------*/
 /* Flags and offset address                                     */
 

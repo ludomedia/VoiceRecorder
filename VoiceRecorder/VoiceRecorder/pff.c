@@ -397,7 +397,6 @@ CLUST get_fat (	/* 1:IO error, Else:Cluster status */
 /* Get sector# from cluster#                                             */
 /*-----------------------------------------------------------------------*/
 
-static
 DWORD clust2sect (	/* !=0: Sector number, 0: Failed - invalid cluster# */
 	CLUST clst		/* Cluster# to be converted */
 )
@@ -1110,4 +1109,3 @@ FRESULT pf_readdir (
 }
 
 #endif /* _USE_DIR */
-

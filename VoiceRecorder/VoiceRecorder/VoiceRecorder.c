@@ -28,9 +28,24 @@ DIR Dir;			/* Directory object */
 FILINFO Fno;		/* File information */
 const char * dir;
 
+BYTE buff[64];
+
 void die (FRESULT rc) {
 	printf("Failed with rc=%u.\n", rc);
 	for (;;) ;
+}
+
+void dump_sector(DWORD lba) {
+	FRESULT result;
+	for(int o=0;o<512;o+=16) {
+		printf("%06x: ", o);
+		result = disk_readp(buff, lba, o, 16);
+		if(result) die(result);
+		for(int i=0;i<16;i++) printf("%02x ", buff[i]);
+		printf(" ");
+		for (int i=0; i<16; i++) printf("%c", isprint(buff[i]) ? buff[i] : '.');
+		printf("\n");
+	}
 }
 
 int main(void)
@@ -42,9 +57,7 @@ int main(void)
 	stdout = &uart_output;
 	stdin = &uart_input;
 	
-	char input;
-	BYTE buff[64];
-	WORD bw, br, i;
+	WORD bw;
 	
 	/*while(1) {
 		puts("Hello world 2!");
@@ -60,17 +73,41 @@ int main(void)
 	/* Mount volume */
 	FRESULT result = pf_mount(&Fs);
 	if(result) die(result);
+	
+	
+	printf("fs_type %d\n", Fs.fs_type);
+	printf("csize %d\n", Fs.csize);
+	printf("n_rootdir %d\n", Fs.n_rootdir);
+	printf("n_fatent %ld\n", Fs.n_fatent);
+	printf("fatbase %ld\n", Fs.fatbase);
+	printf("dirbase %ld\n", Fs.dirbase);
+	printf("database %ld\n", Fs.database);
+	
+	printf("Fat\n");
+	dump_sector(Fs.fatbase);
+	//dump_sector(clust2sectFs.database + (Fs.dirbase-2) * Fs.csize);
+	printf("Root Dir\n");
+	dump_sector(clust2sect(Fs.dirbase));
+	for(;;);
 
-	puts("Read");
-	for(int o=0x1BE;o<0x1FF;o+=16) {
-		result = disk_readp(buff, 0, o, 16);
-		if(result) die(result);
-		
-		for(int i=0;i<16;i++) {
-			printf("%2x ", buff[i]);
-		}
-		puts("");
-	}
+//typedef struct {
+	//BYTE	fs_type;	/* FAT sub type */
+	//BYTE	flag;		/* File status flags */
+	//BYTE	csize;		/* Number of sectors per cluster */
+	//BYTE	pad1;
+	//WORD	n_rootdir;	/* Number of root directory entries (0 on FAT32) */
+	//CLUST	n_fatent;	/* Number of FAT entries (= number of clusters + 2) */
+	//DWORD	fatbase;	/* FAT start sector */
+	//DWORD	dirbase;	/* Root directory start sector (Cluster# on FAT32) */
+	//DWORD	database;	/* Data start sector */
+	//DWORD	fptr;		/* File R/W pointer */
+	//DWORD	fsize;		/* File size */
+	//CLUST	org_clust;	/* File start cluster */
+	//CLUST	curr_clust;	/* File current cluster */
+	//DWORD	dsect;		/* File current data sector */
+//} FATFS;
+//
+
 	for(;;);
 
 	/*

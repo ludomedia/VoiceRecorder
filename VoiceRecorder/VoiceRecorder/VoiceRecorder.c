@@ -15,6 +15,7 @@
 
 #include "diskio.h"
 #include "uart.h"
+#include "mmc.h"
 #include "pff.h"
 #include "analog.h"
 
@@ -46,6 +47,60 @@ void dump_sector(DWORD lba) {
 		for (int i=0; i<16; i++) printf("%c", isprint(buff[i]) ? buff[i] : '.');
 		printf("\n");
 	}
+}
+
+//DRESULT write_sector(DWORD lba) {
+	//DRESULT res;
+	//WORD bc;
+	//res = RES_ERROR;
+	//if (!(CardType & CT_BLOCK)) lba *= 512;	/* Convert to byte address if needed */
+	//if (send_cmd(CMD24, lba) == 0) {		/* WRITE_SINGLE_BLOCK */
+		//xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+		//for(WORD i=0;i<512;i++) {			/* Data */
+			//xmit_spi(1);
+		//}
+		//xmit_spi(0);						/* CRC */
+		//xmit_spi(0);
+		//if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			//for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			//if (bc) res = RES_OK;
+		//}
+	//}		
+	//DESELECT();
+	//rcv_spi();
+	//return res;
+//}
+//
+
+DRESULT write_sector (DWORD sa) {			/* Sector number (LBA) */
+	DRESULT res;
+	WORD bc;
+	static WORD wc;
+
+	res = RES_ERROR;
+
+	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
+	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
+		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+		wc = 512;							/* Set byte counter */
+
+		bc = 12;
+		while (bc && wc) {		/* Send data bytes to the card */
+			xmit_spi('y');
+			wc--; bc--;
+		}
+
+		bc = wc + 2;
+		while (bc--) xmit_spi(0);	/* Fill left bytes and CRC with zeros */
+		if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			if (bc) res = RES_OK;
+		}
+		DESELECT();
+		rcv_spi();
+	}
+
+	return res;
 }
 
 int main(void)
@@ -82,13 +137,33 @@ int main(void)
 	printf("fatbase %ld\n", Fs.fatbase);
 	printf("dirbase %ld\n", Fs.dirbase);
 	printf("database %ld\n", Fs.database);
+
+
+	BYTE bf[4] = {'a','b','c','d'};
 	
+	if (disk_writep(0, 512)) die(1);	/* Initiate a sector write operation */
+	if (disk_writep(bf, 4)) die(1);	/* Send data to the sector */
+	if (disk_writep(0, 0)) die(1);	/* Finalize the currtent secter write operation */
+
+	write_sector(512);
+	dump_sector(512);
+	for(;;);
+	
+/*	
+	printf("Write and dump\n");
+	if(write_sector(1000)) die(1);
+
 	printf("Fat\n");
 	dump_sector(Fs.fatbase);
+
+	printf("Test\n");
+	for(;;);
+	
 	//dump_sector(clust2sectFs.database + (Fs.dirbase-2) * Fs.csize);
 	printf("Root Dir\n");
 	dump_sector(clust2sect(Fs.dirbase));
 	for(;;);
+*/
 
 //typedef struct {
 	//BYTE	fs_type;	/* FAT sub type */
@@ -107,8 +182,6 @@ int main(void)
 	//DWORD	dsect;		/* File current data sector */
 //} FATFS;
 //
-
-	for(;;);
 
 	/*
 	printf("\nOpen a test file (ACCESS.LOG).\n");
@@ -131,7 +204,7 @@ int main(void)
 	printf("\nWrite a text data. (Hello world!)\n");
 	for (;;) {
 		//result = pf_write("Bonjour, ceci est un test\r\n", 27, &bw);
-		result = pf_write("Bonjour, ceci est un test\r\n", 27, &bw);
+		result = pf_write("Salut, ceci est amusant\r\n", 27, &bw);
 		if (result || !bw) break;
 	}
 	if (result) die(result);
@@ -139,6 +212,11 @@ int main(void)
 	printf("\nTerminate the file write process.\n");
 	result = pf_write(0, 0, &bw);
 	if (result) die(result);
+
+	printf("Write and dump\n");
+	if(write_sector(16448)) die(1);
+
+	dump_sector(16448);
 	
 	for(;;);
 	

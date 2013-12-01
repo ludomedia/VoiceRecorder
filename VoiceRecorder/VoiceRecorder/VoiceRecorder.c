@@ -10,6 +10,7 @@
 #define F_CPU 16000000
 
 #include <avr/io.h>
+#include <avr/pgmspace.h>
 #include <stdio.h>
 #include <util/delay.h>
 
@@ -38,6 +39,7 @@ void die (FRESULT rc) {
 
 void dump_sector(DWORD lba) {
 	FRESULT result;
+	printf("Dumping sector %ld\n", lba);
 	for(int o=0;o<512;o+=16) {
 		printf("%06x: ", o);
 		result = disk_readp(buff, lba, o, 16);
@@ -103,6 +105,62 @@ DRESULT write_sector (DWORD sa) {			/* Sector number (LBA) */
 	return res;
 }
 
+const BYTE direntry[] PROGMEM = {  'W',  'A',  'V',  'E',  'D',  'A',  'T',  'A',  'R',  'A', 'W', 0x20, 0x00, 0x7c, 0x88, 0x5e,
+								  0x81, 0x43, 0x81, 0x43, 0x00, 0x00, 0xc7, 0xa8, 0x85, 0x42 };
+
+DRESULT updateSize(DWORD filesize) {
+	DRESULT res;
+	WORD bc;
+	static WORD wc;
+	CLUST cluster = 0x00000708;
+	
+	/* format first directory sector with one file named WAVEDATA.RAW */
+	DWORD sa = clust2sect(Fs.dirbase);
+	res = RES_ERROR;
+	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
+	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
+		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+		wc = 512;							/* Set byte counter */
+
+		for(BYTE i=0;i<sizeof(direntry);i++) {
+			xmit_spi(pgm_read_byte(&direntry[i]));
+			wc--;
+		}
+		
+		/* write cluster# where file data starts. if FAT32, cluster high word is initialized to 0 in direntry array */
+		xmit_spi(cluster&0xFF);				/* write cluster byte 0 */
+		xmit_spi((cluster>>8)&0xFF);		/* write cluster byte 1 */
+
+		/* write filesize */
+		xmit_spi(filesize&0xFF);			/* filesize byte 0 */
+		xmit_spi((filesize>>8)&0xFF);		/* filesize byte 1 */
+		xmit_spi((filesize>>16)&0xFF);		/* filesize byte 2 */
+		xmit_spi((filesize>>24)&0xFF);		/* filesize byte 3 */
+
+		wc -= 6;
+
+		/*
+		bc = 12;
+		while (bc && wc) {		// Send data bytes to the card
+			xmit_spi('y');
+			wc--; bc--;
+		}
+		*/
+		bc = wc + 2;
+		while (bc--) xmit_spi(0);	/* Fill left bytes and CRC with zeros */
+		if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			if (bc) res = RES_OK;
+		}
+		DESELECT();
+		rcv_spi();
+	}
+
+	return res;	
+}
+
+
+
 int main(void)
 {
 	uart_init();
@@ -138,7 +196,10 @@ int main(void)
 	printf("dirbase %ld\n", Fs.dirbase);
 	printf("database %ld\n", Fs.database);
 
-
+	if (updateSize(3612)) die(1);
+	dump_sector(clust2sect(Fs.dirbase));
+	for(;;);
+	
 	BYTE bf[4] = {'a','b','c','d'};
 	
 	if (disk_writep(0, 512)) die(1);	/* Initiate a sector write operation */

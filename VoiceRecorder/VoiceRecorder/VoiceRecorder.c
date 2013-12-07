@@ -51,6 +51,52 @@ void dump_sector(DWORD lba) {
 	}
 }
 
+DWORD filesize;
+
+DRESULT read_filesize ()
+{
+	DRESULT res;
+	BYTE rc;
+	WORD bc;
+	BYTE b0 = 0;
+	BYTE b1 = 0;
+	BYTE b2 = 0;
+	BYTE b3 = 0;
+	DWORD sa = clust2sect(Fs.dirbase);
+	if (!(CardType & CT_BLOCK)) sa *= 512;		/* Convert to byte address if needed */
+	res = RES_ERROR;
+	if (send_cmd(CMD17, sa) == 0) {		/* READ_SINGLE_BLOCK */
+		bc = 40000;
+		do {							/* Wait for data packet */
+			rc = rcv_spi();
+		} while (rc == 0xFF && --bc);
+
+		if (rc == 0xFE) {				/* A data packet arrived */
+			printf("packe arrived\n");
+			bc = 0;
+			do {
+				rc = rcv_spi();
+				if(bc<0x20) {					/* read only first directory entry */
+					if(bc==0x1c) b0 = rc;
+					else if(bc==0x1d) b1 = rc;
+					else if(bc==0x1e) b2 = rc;
+					else if(bc==0x1f) b3 = rc;
+				}
+				bc++;	
+			} while(bc<514);
+			
+			filesize = (DWORD)b3<<24 | (DWORD)b2<<16 | (DWORD)b1<<8 | (DWORD)b0;
+			
+			res = RES_OK;
+		}
+	}
+
+	DESELECT();
+	rcv_spi();
+
+	return res;
+}
+
 //DRESULT write_sector(DWORD lba) {
 	//DRESULT res;
 	//WORD bc;
@@ -74,45 +120,44 @@ void dump_sector(DWORD lba) {
 //}
 //
 
-DRESULT write_sector (DWORD sa) {			/* Sector number (LBA) */
-	DRESULT res;
-	WORD bc;
-	static WORD wc;
-
-	res = RES_ERROR;
-
-	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
-	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
-		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
-		wc = 512;							/* Set byte counter */
-
-		bc = 12;
-		while (bc && wc) {		/* Send data bytes to the card */
-			xmit_spi('y');
-			wc--; bc--;
-		}
-
-		bc = wc + 2;
-		while (bc--) xmit_spi(0);	/* Fill left bytes and CRC with zeros */
-		if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
-			for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
-			if (bc) res = RES_OK;
-		}
-		DESELECT();
-		rcv_spi();
-	}
-
-	return res;
-}
-
+//DRESULT write_sector (DWORD sa) {			/* Sector number (LBA) */
+	//DRESULT res;
+	//WORD bc;
+	//static WORD wc;
+//
+	//res = RES_ERROR;
+//
+	//if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
+	//if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
+		//xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+		//wc = 512;							/* Set byte counter */
+//
+		//bc = 12;
+		//while (bc && wc) {		/* Send data bytes to the card */
+			//xmit_spi('y');
+			//wc--; bc--;
+		//}
+//
+		//bc = wc + 2;
+		//while (bc--) xmit_spi(0);	/* Fill left bytes and CRC with zeros */
+		//if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			//for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			//if (bc) res = RES_OK;
+		//}
+		//DESELECT();
+		//rcv_spi();
+	//}
+//
+	//return res;
+//}
+//
 const BYTE direntry[] PROGMEM = {  'W',  'A',  'V',  'E',  'D',  'A',  'T',  'A',  'R',  'A', 'W', 0x20, 0x00, 0x7c, 0x88, 0x5e,
 								  0x81, 0x43, 0x81, 0x43, 0x00, 0x00, 0xc7, 0xa8, 0x85, 0x42 };
 
-DRESULT updateSize(DWORD filesize) {
+DRESULT updateDirEntry(CLUST start_cluster, DWORD filesize) {
 	DRESULT res;
 	WORD bc;
-	static WORD wc;
-	CLUST cluster = 0x00000708;
+	WORD wc;
 	
 	/* format first directory sector with one file named WAVEDATA.RAW */
 	DWORD sa = clust2sect(Fs.dirbase);
@@ -128,8 +173,8 @@ DRESULT updateSize(DWORD filesize) {
 		}
 		
 		/* write cluster# where file data starts. if FAT32, cluster high word is initialized to 0 in direntry array */
-		xmit_spi(cluster&0xFF);				/* write cluster byte 0 */
-		xmit_spi((cluster>>8)&0xFF);		/* write cluster byte 1 */
+		xmit_spi(start_cluster&0xFF);		/* write cluster byte 0 */
+		xmit_spi((start_cluster>>8)&0xFF);	/* write cluster byte 1 */
 
 		/* write filesize */
 		xmit_spi(filesize&0xFF);			/* filesize byte 0 */
@@ -153,82 +198,88 @@ DRESULT updateSize(DWORD filesize) {
 }
 
 /* format a FAT sector by building the corresponding part of an ordered cluster list */
-inline DRESULT formatFATsector(DWORD sa, CLUST * cluster_ptr, CLUST last_cluster) {
+inline DRESULT formatFATsector(DWORD fatsector, CLUST last_cluster) {
 	DRESULT res;
 	WORD bc;
-	WORD wc;
-	puts("formatFATsector");
-	printf("cluster %ld\n", *cluster_ptr);
-	printf("last_cluster %ld\n", last_cluster);
-	
-	res = RES_ERROR;
-	sa += Fs.fatbase;
-	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
-//	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
-//		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
-		wc = 512;							/* Set byte counter */
 
-		while(*cluster_ptr<last_cluster && wc) {
-			CLUST c = * cluster_ptr;
-			//xmit_spi(c&0xFF);			/* cluster byte 0 */
-			//xmit_spi((c>>8)&0xFF);	/* cluster byte 1 */
-			//xmit_spi((c>>16)&0xFF);	/* cluster byte 2 */
-			//xmit_spi((c>>24)&0xFF);	/* cluster byte 3 */
-			wc -= 4;
-			(*cluster_ptr)++;
+	puts("formatFATsector");
+	printf("fatsector %ld\n", fatsector);
+	printf("last_cluster %ld\n", last_cluster);
+
+	DWORD sa = fatsector  + Fs.fatbase;
+	CLUST index = fatsector * 128;
+	last_cluster += 3; // skip two reserved cluster and root directory cluster
+	CLUST c;
+
+	res = RES_ERROR;
+	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
+	printf("sector %ld\n", sa);
+	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
+		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+
+		for(bc=0;bc<512;bc+=4) {
+			index++;
+			c = index;
+			if(c==last_cluster) c = 0x0fffffff; /* end of cluster list */
+			else if(c>last_cluster) c = 0;
+			if(fatsector==0) {
+				if(bc==0) c = 0x0ffffff8;
+				else if(bc<12) c = 0x0fffffff;
+			}
+			xmit_spi(c&0xFF);		/* cluster byte 0 */
+			xmit_spi((c>>8)&0xFF);	/* cluster byte 1 */
+			xmit_spi((c>>16)&0xFF);	/* cluster byte 2 */
+			xmit_spi((c>>24)&0xFF);	/* cluster byte 3 */		
 		}
-		return RES_OK;
-		///* end cluster 0x0fffffff */
-		//xmit_spi(0xff);						
-		//xmit_spi(0xff);						
-		//xmit_spi(0xff);						
-		//xmit_spi(0x0f);						
-		//wc -= 4;
-				//
-		//bc = wc + 2;
-		//while (bc--) xmit_spi(0);	/* fill left bytes and crc with zeros */
-		//if ((rcv_spi() & 0x1f) == 0x05) {	/* receive data resp and wait for end of write process in timeout of 500ms */
-			//for (bc = 5000; rcv_spi() != 0xff && bc; bc--) dly_100us();	/* wait ready */
-			//if (bc) res = res_ok;
-		//}
-		//deselect();
-		//rcv_spi();
-	//}
-	//
-//
+		printf("index %ld\n", index);
+
+		xmit_spi(0); xmit_spi(0);	/* send CRC with 0 */
+		if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			if (bc) res = RES_OK;
+		}
+		DESELECT();
+		rcv_spi();
+	}
+
 	return res;
 }
 
-CLUST size2cluster(DWORD size) {
+CLUST size2clusters(DWORD size) {
+	//printf("-- size %ld\n", size);
 	DWORD clust_byte_size = (DWORD)Fs.csize * 512;
-	// printf("cbs %ld\n", clust_byte_size);
+	//printf("-- cbs %ld\n", clust_byte_size);
 	DWORD rem = size % clust_byte_size;
-	// printf("rem %ld\n", rem);
+	//printf("-- rem %ld\n", rem);
 	CLUST c = size / clust_byte_size;
 	if(rem>0) c++;
+	//printf("-- c %ld\n", c);
 	return c;
 }
 
 /* cluster# 0 is for root directory, file starts at cluster# 1 */
-#define CLUSTER_OFFSET 1
+#define CLUSTER_START 3
 
 DRESULT updateFAT(DWORD old_filesize, DWORD new_filesize) {
-	/* if(new_clusters >= Fs.n_fatent) return FR_DISK_ERR; */
-	WORD fat_sector = (size2cluster(old_filesize)+2) / 128;					/* first FAT sector to format */
-	CLUST cluster = (fat_sector * 128) + CLUSTER_OFFSET;					/* first cluster index to format */
-	CLUST last_cluster = size2cluster(new_filesize) + CLUSTER_OFFSET;		/* last cluster index used by the file after recording */
-
 	
-	puts("updateFAT");
-	printf("cluster %ld\n", cluster);
-	printf("last_cluster %ld\n", last_cluster);
-	printf("fat_sector %d\n", fat_sector);
-	printf("last_fat_sector %d\n", last_fat_sector);
+	puts("> updateFAT");
+
+	if(updateDirEntry(CLUSTER_START, new_filesize)) return RES_ERROR;
+	
+	CLUST clusters = size2clusters(new_filesize);								/* number of clusters used by the file after recording */
+	/* if(new_clusters >= Fs.n_fatent) return FR_DISK_ERR; */
+	WORD fatsector = (size2clusters(old_filesize) + CLUSTER_START) / 128;		/* last fatsector formated during the previous recording */
+	WORD last_fatsector = (clusters + CLUSTER_START) / 128;						/* last fatsector to format after recording */
+
+	printf("clusters %ld\n", clusters);
+	printf("first fatsectorr %d\n", fatsector);
+	printf("last fatsector %d\n", last_fatsector);
 
 	do {
-		if(formatFATsector(fat_sector, &cluster, last_cluster)!=RES_OK) return RES_ERROR;
-		fat_sector++;
-	} while(fat_sector<last_fat_sector);
+		if(formatFATsector(fatsector, clusters)!=RES_OK) return RES_ERROR;
+		// dump_sector(Fs.fatbase + fatsector);
+		fatsector++;
+	} while(fatsector<=last_fatsector);
 	
 	return RES_OK;
 }
@@ -269,22 +320,23 @@ int main(void)
 	printf("dirbase %ld\n", Fs.dirbase);
 	printf("database %ld\n", Fs.database);
 
-	if(updateFAT(453000, 16400800)) die(1);
+	if(read_filesize()) die(1);
+	printf("current filesize %ld\n", filesize);
+	
+	//if (updateSize(3612)) die(1);
+	//DWORD filesize = ((DWORD)1024*1024*15) + 1;
+	//updateFAT(0, filesize);
+	dump_sector(clust2sect(Fs.dirbase));
+	//if(formatFATsector(0, 7)) die(1);
+	//dump_sector(Fs.fatbase);
+	for(;;);
+
+/*	if(updateFAT(453000, 16400800)) die(1);
 	for(;;);
 	if (updateSize(3612)) die(1);
 	dump_sector(clust2sect(Fs.dirbase));
 	for(;;);
-	
-	BYTE bf[4] = {'a','b','c','d'};
-	
-	if (disk_writep(0, 512)) die(1);	/* Initiate a sector write operation */
-	if (disk_writep(bf, 4)) die(1);	/* Send data to the sector */
-	if (disk_writep(0, 0)) die(1);	/* Finalize the currtent secter write operation */
-
-	write_sector(512);
-	dump_sector(512);
-	for(;;);
-	
+*/	
 /*	
 	printf("Write and dump\n");
 	if(write_sector(1000)) die(1);

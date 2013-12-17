@@ -284,6 +284,37 @@ DRESULT updateFAT(DWORD old_filesize, DWORD new_filesize) {
 	return RES_OK;
 }
 
+/* write analog data to current sector */
+inline DRESULT writeData(DWORD sector) {
+	DRESULT res;
+	WORD bc;
+
+	puts("WriteData");
+	printf("sector %ld\n", sector);
+
+	DWORD sa = sector + Fs.database;
+
+	res = RES_ERROR;
+	if (!(CardType & CT_BLOCK)) sa *= 512;	/* Convert to byte address if needed */
+	if (send_cmd(CMD24, sa) == 0) {			/* WRITE_SINGLE_BLOCK */
+		xmit_spi(0xFF); xmit_spi(0xFE);		/* Data block header */
+
+		for(bc=0;bc<512;bc++) {
+			xmit_spi(bc&0xFF);
+		}
+
+		xmit_spi(0); xmit_spi(0);	/* send CRC with 0 */
+		if ((rcv_spi() & 0x1F) == 0x05) {	/* Receive data resp and wait for end of write process in timeout of 500ms */
+			for (bc = 5000; rcv_spi() != 0xFF && bc; bc--) dly_100us();	/* Wait ready */
+			if (bc) res = RES_OK;
+		}
+		DESELECT();
+		rcv_spi();
+	}
+
+	return res;
+}
+
 
 int main(void)
 {
@@ -322,11 +353,20 @@ int main(void)
 
 	if(read_filesize()) die(1);
 	printf("current filesize %ld\n", filesize);
+	DWORD old_filesize = filesize;
+	DWORD sector = filesize / 512; // filesize % 512 is supposed to be 0
+
+	for(int s=0;s<5;s++) {
+		if(writeData(sector)) die(1);
+		sector++;
+		filesize+=512;
+	}
 	
 	//if (updateSize(3612)) die(1);
 	//DWORD filesize = ((DWORD)1024*1024*15) + 1;
-	//updateFAT(0, filesize);
-	dump_sector(clust2sect(Fs.dirbase));
+	if(updateFAT(old_filesize, filesize)) die(1);
+	puts("Done");
+//	dump_sector(clust2sect(Fs.dirbase));
 	//if(formatFATsector(0, 7)) die(1);
 	//dump_sector(Fs.fatbase);
 	for(;;);

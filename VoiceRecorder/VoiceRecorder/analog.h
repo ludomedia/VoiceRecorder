@@ -10,5 +10,8 @@
 #define ANALOG_H_
 
 void adc_init();
+void adc_buffer_write(uint8_t);
+uint8_t adc_buffer_read();
+void adc_dump_buffer();
 
 #endif /* ANALOG_H_ */

@@ -7,26 +7,29 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <stdio.h>
+#include "analog.h"
 
 void adc_init() {
-  ADMUX |= (1 << REFS0) | (1 << ADLAR); // Set ADC reference to AVCC
-  ADCSRA |= (1 << ADEN);  // Enable ADC
-  ADCSRA |= (1 << ADATE); // Enable auto-triggering
-  ADCSRA |= (1 << ADIE);  // Enable ADC Interrupt
-  //  sei();                 // Enable Global Interrupts
+  ADMUX |= (1 << REFS0) | (1 << ADLAR); // Set ADC reference to AVCC and result left adjusted
+  ADCSRA  = (1<< ADPS2) | (1<<ADPS1) | (1<<ADPS0);	// 128 x prescalar
+  ADCSRA |= (1 << ADEN);							// Enable ADC
+  ADCSRA |= (1 << ADATE);							// Enable auto-triggering
+  ADCSRA |= (1 << ADIE);							// Enable ADC Interrupt
+  ADCSRA |= (1 << ADSC);							// Start First conversion
 }  
 
-#define BUFFER_SIZE 128
-
+#define BUFFER_SIZE 400
+/*
 static uint16_t in_ptr = 0;
 static uint16_t bufsize = 0;
 static int8_t buffer[BUFFER_SIZE];
 static uint16_t maxsize = 0;
-
-volatile long cnt;
+*/
+/*volatile long cnt;
 const int chipSelect = 10;
 #define TEST 9
-
+*/
 ISR(ADC_vect)            //ADC interrupt
 {
 	//uint8_t high,low;
@@ -34,16 +37,21 @@ ISR(ADC_vect)            //ADC interrupt
 	//high = ADCH;            //and ADCH releases them.
 
 	//aval = (high << 8) | low;
-	buffer[in_ptr++] = ADCH;
+	//buffer[in_ptr++] = ADCH;
+	PORTD |= (1<<2);
 
-	if(in_ptr >= BUFFER_SIZE) in_ptr = 0;
-	if(bufsize < BUFFER_SIZE) bufsize++;
-	if(bufsize > maxsize) maxsize = bufsize;
+	uint8_t v = ADCH;
+	adc_buffer_write(v);
+	PORTD &= ~(1<<2);
+	//if(in_ptr >= BUFFER_SIZE) in_ptr = 0;
+	//if(bufsize < BUFFER_SIZE) bufsize++;
+	//if(bufsize > maxsize) maxsize = bufsize;
 }
 
+/*
 uint16_t adc_dataAvailable() {
 	uint16_t v;
-	cli();
+	cli(); // TODO look at util/atomic.h
 	v = bufsize;
 	sei();
 	return v;
@@ -61,6 +69,47 @@ uint8_t adc_getAnalogData() {
 	sei();
 	return v;
 }
+*/
+static uint16_t in_ptr = 0;
+static uint16_t out_ptr = 0;
+volatile uint16_t buffer_size = 0;
+static int8_t buffer[BUFFER_SIZE];
+static uint8_t buffer_overrun = 0;
+
+void adc_buffer_write(uint8_t v) {
+	buffer[in_ptr++] = v;
+	if(buffer_size<BUFFER_SIZE) buffer_size++;
+	else {
+		if(buffer_overrun==0) buffer_overrun = 1;
+		if(buffer_overrun==1) {
+			puts("Bufovr");
+			buffer_overrun = 2;
+		}			
+		out_ptr++;
+		if(out_ptr>=BUFFER_SIZE) out_ptr = 0;
+	}		
+	if(in_ptr>=BUFFER_SIZE) in_ptr = 0;
+}
+
+uint8_t adc_buffer_read() {
+	while(buffer_size==0);
+	cli();
+	uint8_t v = buffer[out_ptr++];
+	if(out_ptr>=BUFFER_SIZE) out_ptr = 0;
+	buffer_size--;
+	sei();
+	return v;
+}
+/*
+void adc_dump_buffer() {
+	printf("Dumping buffer in: %02x out: %02x\n", in_ptr, out_ptr);
+	for(int o=0;o<BUFFER_SIZE;o++) {
+		printf("%02x ", buffer[o]);
+	}
+	printf("\n");
+}
+*/
+
 
 /*
   SD card datalogger
